@@ -20,23 +20,23 @@ runs:
   using: composite
   steps:
     - name: Capture runner internal logs
-      id: capture
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         set -euo pipefail
 
-        if [[ "${RUNNER_OS}" != "Linux" ]]; then
-          echo "::error::Only Linux runners are currently supported."
-          exit 1
-        fi
-
-        worker_pid=$(ps -eo pid=,args= | awk '/[R]unner.Worker/ { print $1; exit }')
+        worker_pid=$(ps -Ao pid=,command= | awk '/[R]unner.Worker/ { print $1; exit }')
         if [[ -z "${worker_pid}" ]]; then
           echo "::error::Could not locate the Runner.Worker process."
           exit 1
         fi
 
-        worker_exe=$(readlink -f "/proc/${worker_pid}/exe")
+        if [[ "${RUNNER_OS}" == "Linux" ]]; then
+          worker_exe=$(readlink -f "/proc/${worker_pid}/exe")
+        else
+          worker_exe=$(ps -p "${worker_pid}" -o command= | awk '{ print $1 }')
+        fi
+
         runner_root=$(dirname "$(dirname "${worker_exe}")")
         diag="${runner_root}/_diag"
         if [[ ! -d "${diag}" ]]; then
@@ -46,25 +46,77 @@ runs:
 
         destination="${RUNNER_TEMP}/runner-internal-logs"
         mkdir -p "${destination}"
-        find "${diag}" -maxdepth 1 -type f \
-          \( -name "Runner_*.log" -o -name "Worker_*.log" \) \
-          -exec cp {} "${destination}/" \;
+        shopt -s nullglob
+        logs=("${diag}"/Runner_*.log "${diag}"/Worker_*.log)
+        if (( ${#logs[@]} == 0 )); then
+          echo "::error::Runner diagnostic logs were not available."
+          exit 1
+        fi
+        cp "${logs[@]}" "${destination}/"
 
-        runner_log=$(find "${destination}" -maxdepth 1 -type f -name "Runner_*.log" -print -quit)
-        worker_log=$(find "${destination}" -maxdepth 1 -type f -name "Worker_*.log" -print -quit)
+        runner_logs=("${destination}"/Runner_*.log)
+        worker_logs=("${destination}"/Worker_*.log)
+        runner_log=${runner_logs[0]:-}
+        worker_log=${worker_logs[0]:-}
         if [[ -z "${runner_log}" || -z "${worker_log}" ]]; then
           echo "::error::Runner diagnostic logs were not available."
           exit 1
         fi
 
         printf "worker_exe=%s\ndiag=%s\n" "${worker_exe}" "${diag}" > "${destination}/location.txt"
-        find "${destination}" -maxdepth 1 -type f -printf "%f %s bytes\n" | sort
-        echo "path=${destination}" >> "${GITHUB_OUTPUT}"
+        for file in "${destination}"/*; do
+          printf "%s %s bytes\n" "$(basename "${file}")" "$(wc -c < "${file}")"
+        done
+
+    - name: Capture runner internal logs
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $worker = Get-CimInstance Win32_Process |
+          Where-Object { $_.Name -eq "Runner.Worker.exe" } |
+          Select-Object -First 1
+        if (-not $worker -or -not $worker.ExecutablePath) {
+          throw "Could not locate the Runner.Worker process."
+        }
+
+        $workerExe = $worker.ExecutablePath
+        $runnerRoot = Split-Path (Split-Path $workerExe -Parent) -Parent
+        $diag = Join-Path $runnerRoot "_diag"
+        if (-not (Test-Path $diag -PathType Container)) {
+          throw "Runner diagnostic directory not found at $diag."
+        }
+
+        $destination = Join-Path $env:RUNNER_TEMP "runner-internal-logs"
+        New-Item -ItemType Directory -Path $destination -Force | Out-Null
+        $logs = Get-ChildItem $diag -File |
+          Where-Object { $_.Name -like "Runner_*.log" -or $_.Name -like "Worker_*.log" }
+        if (-not $logs) {
+          throw "Runner diagnostic logs were not available."
+        }
+        Copy-Item $logs.FullName -Destination $destination
+
+        $runnerLog = Get-ChildItem $destination -File -Filter "Runner_*.log" |
+          Select-Object -First 1
+        $workerLog = Get-ChildItem $destination -File -Filter "Worker_*.log" |
+          Select-Object -First 1
+        if (-not $runnerLog -or -not $workerLog) {
+          throw "Runner diagnostic logs were not available."
+        }
+
+        @"
+        worker_exe=$workerExe
+        diag=$diag
+        "@ | Set-Content (Join-Path $destination "location.txt")
+        Get-ChildItem $destination -File |
+          Sort-Object Name |
+          ForEach-Object { "$($_.Name) $($_.Length) bytes" }
 
     - name: Upload runner internal logs
       uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ steps.capture.outputs.path }}
+        path: ${{ runner.temp }}/runner-internal-logs
         if-no-files-found: error
         retention-days: ${{ inputs.retention-days }}

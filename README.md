@@ -1,12 +1,12 @@
 # Runner Internal Logs Action
 
-Capture the internal `Runner_*.log` and `Worker_*.log` files from a Linux
-GitHub Actions runner and upload them as an artifact.
+Capture the internal `Runner_*.log` and `Worker_*.log` files from Linux, macOS,
+and Windows GitHub Actions runners and upload them as an artifact.
 
 ```yaml
 - name: Capture runner internal logs
   if: always()
-  uses: austenstone/runner-internal-logs-action@v2
+  uses: austenstone/runner-internal-logs-action@v3
 ```
 
 The artifact is named `runner-internal-logs` and retained for one day by
@@ -15,7 +15,7 @@ default:
 ```yaml
 - name: Capture runner internal logs
   if: always()
-  uses: austenstone/runner-internal-logs-action@v2
+  uses: austenstone/runner-internal-logs-action@v3
   with:
     artifact-name: my-runner-logs
     retention-days: 3
@@ -37,4 +37,4 @@ retention periods, and review them before sharing.
 
 ## Support
 
-Only Linux runners are currently supported.
+Linux, macOS, and Windows runners are supported.
