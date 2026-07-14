@@ -1,0 +1,29 @@
+name: Demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate sample runner activity
+        run: |
+          echo "This step will appear in the internal Worker log."
+          echo "::warning::Sample annotation from the demo workflow"
+
+      - name: Capture runner internal logs
+        if: always()
+        uses: ./
+        with:
+          artifact-name: demo-runner-internal-logs
+          retention-days: 1
+

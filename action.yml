@@ -1,0 +1,71 @@
+name: Capture runner internal logs
+description: Capture and upload the GitHub Actions runner's internal diagnostic logs
+author: Austen Stone
+
+branding:
+  icon: file-text
+  color: gray-dark
+
+inputs:
+  artifact-name:
+    description: Name of the uploaded artifact
+    required: false
+    default: runner-internal-logs
+  retention-days:
+    description: Number of days to retain the artifact
+    required: false
+    default: "1"
+
+runs:
+  using: composite
+  steps:
+    - name: Capture runner internal logs
+      id: capture
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if [[ "${RUNNER_OS}" != "Linux" ]]; then
+          echo "::error::Only Linux runners are currently supported."
+          exit 1
+        fi
+
+        worker_pid=$(ps -eo pid=,args= | awk '/[R]unner.Worker/ { print $1; exit }')
+        if [[ -z "${worker_pid}" ]]; then
+          echo "::error::Could not locate the Runner.Worker process."
+          exit 1
+        fi
+
+        worker_exe=$(readlink -f "/proc/${worker_pid}/exe")
+        runner_root=$(dirname "$(dirname "${worker_exe}")")
+        diag="${runner_root}/_diag"
+        if [[ ! -d "${diag}" ]]; then
+          echo "::error::Runner diagnostic directory not found at ${diag}."
+          exit 1
+        fi
+
+        destination="${RUNNER_TEMP}/runner-internal-logs"
+        mkdir -p "${destination}"
+        find "${diag}" -maxdepth 1 -type f \
+          \( -name "Runner_*.log" -o -name "Worker_*.log" \) \
+          -exec cp {} "${destination}/" \;
+
+        runner_log=$(find "${destination}" -maxdepth 1 -type f -name "Runner_*.log" -print -quit)
+        worker_log=$(find "${destination}" -maxdepth 1 -type f -name "Worker_*.log" -print -quit)
+        if [[ -z "${runner_log}" || -z "${worker_log}" ]]; then
+          echo "::error::Runner diagnostic logs were not available."
+          exit 1
+        fi
+
+        printf "worker_exe=%s\ndiag=%s\n" "${worker_exe}" "${diag}" > "${destination}/location.txt"
+        find "${destination}" -maxdepth 1 -type f -printf "%f %s bytes\n" | sort
+        echo "path=${destination}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload runner internal logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.capture.outputs.path }}
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+
