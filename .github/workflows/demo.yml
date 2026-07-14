@@ -16,9 +16,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Generate sample runner activity
-        run: |
-          echo "This step will appear in the internal Worker log."
-          echo "::warning::Sample annotation from the demo workflow"
+        run: echo "This step will appear in the internal Worker log."
 
       - name: Capture runner internal logs
         if: always()
@@ -26,4 +24,3 @@ jobs:
         with:
           artifact-name: demo-runner-internal-logs
           retention-days: 1
-
