@@ -6,7 +6,7 @@ GitHub Actions runner and upload them as an artifact.
 ```yaml
 - name: Capture runner internal logs
   if: always()
-  uses: austenstone/runner-internal-logs-action@v1
+  uses: austenstone/runner-internal-logs-action@v2
 ```
 
 The artifact is named `runner-internal-logs` and retained for one day by
@@ -15,7 +15,7 @@ default:
 ```yaml
 - name: Capture runner internal logs
   if: always()
-  uses: austenstone/runner-internal-logs-action@v1
+  uses: austenstone/runner-internal-logs-action@v2
   with:
     artifact-name: my-runner-logs
     retention-days: 3
